@@ -15,6 +15,21 @@ export interface CaptionStyle {
   backgroundColor: string;
   padding: number;
   borderRadius: number;
+  // Animation properties
+  animationDuration?: number; // Duration of entrance/exit animations in ms
+  animationDelay?: number; // Delay before animation starts
+  animationEasing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  // Visual effects
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  // Border properties
+  borderColor?: string;
+  borderWidth?: number;
+  // Additional styling
+  opacity?: number;
+  rotation?: number;
 }
 
 export interface CaptionGenerationRequest {

@@ -144,16 +144,42 @@ export class ExportService {
     const playResX = Number(wStr) || 1080;
     const playResY = Number(hStr) || 1920;
 
+    // Calculate dynamic font size based on video resolution
+    const baseFontSize = style.fontSize || 36;
+    const scaleFactor = Math.max(1, Math.min(playResX / 1080, playResY / 1920));
+    const scaledFontSize = Math.max(48, Math.round(baseFontSize * scaleFactor));
+
+    // Position alignment
     const align =
       style.position === 'top' ? 8 : style.position === 'center' ? 5 : 2;
+
+    // Color conversions - force high contrast for visibility
     const primary = this.hexToAssColor(style.color || '#ffffff');
-    // Semi-transparent background for a pill-like box; 0x40 ≈ 25% transparent
-    const back = this.hexToAssColor(style.backgroundColor || '#000000').replace(
-      /^&H00/,
-      '&H40'
+    const backgroundColor = this.hexToAssColor(
+      style.backgroundColor || '#000000'
     );
-    const marginH = Math.max(20, Math.round(playResX * 0.05));
-    const marginV = Math.max(40, Math.round(playResY * 0.06));
+
+    // Force high contrast colors for better visibility - always use pure white text and solid black background
+    const forcedPrimary = '&H00FFFFFF&'; // Always pure white text
+    const forcedBackground = '&HFF000000&'; // Always solid black background
+
+    // Debug the actual colors being used
+    console.log('Using forced colors:', {
+      text: forcedPrimary,
+      background: forcedBackground,
+    });
+
+    // Create solid background for better visibility - ALWAYS use forced colors
+    const backColor = forcedBackground; // Use forced high contrast background
+    const textColor = forcedPrimary; // Use forced high contrast text
+
+    // Calculate margins based on padding and resolution
+    const marginH = Math.max(style.padding || 20, Math.round(playResX * 0.05));
+    const marginV = Math.max(style.padding || 40, Math.round(playResY * 0.06));
+
+    // Calculate outline and shadow based on font size - make them stronger for better visibility
+    const outline = Math.max(4, Math.round(scaledFontSize * 0.12)); // Stronger outline
+    const shadow = Math.max(3, Math.round(scaledFontSize * 0.08)); // Stronger shadow
 
     const header = [
       '[Script Info]',
@@ -165,7 +191,7 @@ export class ExportService {
       '',
       '[V4+ Styles]',
       'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-      `Style: Default,${style.fontFamily || 'Arial'},${style.fontSize || 36},${primary},&H000000FF,&H00000000,${back},0,0,0,0,100,100,0,0,3,0,0,${align},${marginH},${marginH},${marginV},0`,
+      `Style: Default,${style.fontFamily || 'Arial'},${scaledFontSize},${textColor},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,${outline},${shadow},${align},${marginH},${marginH},${marginV},0`,
       '',
       '[Events]',
       'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
@@ -176,12 +202,51 @@ export class ExportService {
         const start = this.secondsToAssTime(c.startTime);
         const end = this.secondsToAssTime(c.endTime);
         const text = this.escapeAssText(c.text);
-        // \q2 = smart wrapping; disable outline/shadow at line level for cleaner box
-        return `Dialogue: 0,${start},${end},Default,,0,0,0,,{\\q2} ${text}`;
+
+        // Calculate positioning
+        const centerX = playResX / 2;
+        const centerY = playResY / 2;
+
+        // Calculate Y position based on style.position
+        let yPosition;
+        switch (style.position) {
+          case 'top':
+            yPosition = marginV + scaledFontSize + 20;
+            break;
+          case 'center':
+            yPosition = centerY;
+            break;
+          case 'bottom':
+          default:
+            yPosition = playResY - marginV - scaledFontSize - 20;
+            break;
+        }
+
+        // Generate style-specific effects and animations
+        const effect = this.generateAssEffect(
+          style,
+          centerX,
+          yPosition,
+          c,
+          scaledFontSize,
+          outline,
+          shadow
+        );
+
+        return `Dialogue: 0,${start},${end},Default,,0,0,0,,${effect}${text}`;
       })
       .join('\n');
 
     const content = `${header}\n${events}\n`;
+
+    // Debug the ASS file content
+    console.log('ASS File generated with', events.split('\n').length, 'events');
+    console.log(
+      'ASS Style:',
+      `Style: Default,${style.fontFamily || 'Arial'},${scaledFontSize},${textColor},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,${outline},${shadow},${align},${marginH},${marginH},${marginV},0`
+    );
+    console.log('First event:', events.split('\n')[0]);
+
     await fs.promises.writeFile(assPath, content, 'utf8');
   }
 
@@ -248,25 +313,117 @@ export class ExportService {
   }
 
   private hexToAssColor(hex: string): string {
-    const m =
-      /^#?([a-fA-F0-9]{6})$/.exec(hex) || /^#?([a-fA-F0-9]{3})$/.exec(hex);
-    let r = 255,
-      g = 255,
-      b = 255;
-    if (m) {
-      let h = m[1];
-      if (h.length === 3)
-        h = h
-          .split('')
-          .map(c => c + c)
-          .join('');
-      r = parseInt(h.substring(0, 2), 16);
-      g = parseInt(h.substring(2, 4), 16);
-      b = parseInt(h.substring(4, 6), 16);
+    // Handle various hex formats including rgba
+    let cleanHex = hex.replace('#', '');
+
+    // Handle rgba format like "rgba(0, 0, 0, 0.8)"
+    if (hex.startsWith('rgba')) {
+      const rgbaMatch = hex.match(
+        /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/
+      );
+      if (rgbaMatch) {
+        const r = parseInt(rgbaMatch[1]);
+        const g = parseInt(rgbaMatch[2]);
+        const b = parseInt(rgbaMatch[3]);
+        const alpha = parseFloat(rgbaMatch[4]);
+        const toHex = (n: number) =>
+          n.toString(16).toUpperCase().padStart(2, '0');
+        const alphaHex = Math.round(alpha * 255)
+          .toString(16)
+          .toUpperCase()
+          .padStart(2, '0');
+        return `&H${alphaHex}${toHex(b)}${toHex(g)}${toHex(r)}&`;
+      }
     }
+
+    // Handle 3-digit hex (e.g., #fff -> #ffffff)
+    if (cleanHex.length === 3) {
+      cleanHex = cleanHex
+        .split('')
+        .map(c => c + c)
+        .join('');
+    }
+
+    // Ensure we have a valid 6-digit hex
+    if (cleanHex.length !== 6) {
+      cleanHex = 'FFFFFF'; // Default to white
+    }
+
+    const r = parseInt(cleanHex.substring(0, 2), 16);
+    const g = parseInt(cleanHex.substring(2, 4), 16);
+    const b = parseInt(cleanHex.substring(4, 6), 16);
+
     const toHex = (n: number) => n.toString(16).toUpperCase().padStart(2, '0');
-    // ASS is &HBBGGRR&
+    // ASS format is &HBBGGRR& (Blue-Green-Red)
     return `&H00${toHex(b)}${toHex(g)}${toHex(r)}&`;
+  }
+
+  private generateAssEffect(
+    style: CaptionStyle,
+    centerX: number,
+    yPosition: number,
+    caption: CaptionSegment,
+    scaledFontSize: number,
+    outline: number,
+    shadow: number
+  ): string {
+    const duration = (caption.endTime - caption.startTime) * 1000; // Convert to milliseconds
+    const animationDuration = style.animationDuration || 300;
+    const animationDelay = style.animationDelay || 0;
+
+    // Build base effects with custom properties - force pure white text for maximum visibility
+    const textColor = '&H00FFFFFF&'; // Always pure white text
+    let baseEffect = `{\\1c${textColor}\\bord${outline}\\shad${shadow}\\q2\\pos(${centerX},${yPosition})`;
+
+    // Debug the effect being generated (simplified)
+    // console.log('ASS Effect:', baseEffect);
+
+    // Don't add opacity - keep text fully opaque for maximum visibility
+    // if (style.opacity !== undefined) {
+    //   const alpha = Math.round(style.opacity * 255);
+    //   baseEffect += `\\alpha&H${alpha.toString(16).padStart(2, '0')}&`;
+    // }
+
+    // Add rotation if specified
+    if (style.rotation !== undefined) {
+      baseEffect += `\\frz${style.rotation}`;
+    }
+
+    // Don't add conflicting shadow/border properties - keep it simple
+
+    // Add style-specific effects and animations
+    switch (style.type) {
+      case 'reel':
+        // Modern social media style with pill background and subtle animations
+        const reelScale = 105;
+        const reelDuration = Math.min(animationDuration, duration / 4);
+        return `${baseEffect}\\t(${animationDelay},${animationDelay + reelDuration},\\fscx${reelScale}\\fscy${reelScale})\\t(${animationDelay + reelDuration},${duration - reelDuration},\\fscx100\\fscy100)\\t(${duration - reelDuration},${duration},\\fscx95\\fscy95)}`;
+
+      case 'classic':
+        // Traditional subtitle style - no animations
+        return `${baseEffect}}`;
+
+      case 'bounce':
+        // Bounce animation effect with custom duration
+        const bounceDuration = Math.min(animationDuration, duration / 4);
+        const bounceScale = 110;
+        const bounceDelay = animationDelay;
+        return `${baseEffect}\\t(${bounceDelay},${bounceDelay + bounceDuration},\\fscx${bounceScale}\\fscy${bounceScale})\\t(${bounceDelay + bounceDuration},${bounceDelay + bounceDuration * 2},\\fscx100\\fscy100)\\t(${bounceDelay + bounceDuration * 2},${bounceDelay + bounceDuration * 3},\\fscx${bounceScale}\\fscy${bounceScale})\\t(${bounceDelay + bounceDuration * 3},${duration},\\fscx100\\fscy100)}`;
+
+      case 'slide':
+        // Slide in effect from the side with custom properties
+        const slideDuration = Math.min(animationDuration, duration / 3);
+        const slideDistance = Math.min(200, centerX * 0.3);
+        const slideStartX =
+          style.position === 'top'
+            ? centerX - slideDistance
+            : centerX + slideDistance;
+        const slideDelay = animationDelay;
+        return `${baseEffect}\\t(${slideDelay},${slideDelay + slideDuration},\\move(${slideStartX},${yPosition},${centerX},${yPosition}))}`;
+
+      default:
+        return `${baseEffect}}`;
+    }
   }
 
   private escapeAssText(text: string): string {
