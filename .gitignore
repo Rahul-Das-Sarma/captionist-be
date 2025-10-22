@@ -104,5 +104,8 @@ Thumbs.db
 uploads/
 temp/
 
+# Export files (large video files)
+data/exports/
+
 # Documentation
 docs/

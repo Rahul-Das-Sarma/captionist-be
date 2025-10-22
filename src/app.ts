@@ -52,8 +52,8 @@ app.use(morgan('combined'));
 // Compression
 app.use(compression());
 
-// Rate limiting
-app.use(rateLimiter);
+// Rate limiting - applied per route as needed
+// app.use(rateLimiter); // Removed global rate limiting
 
 // Body parsing
 app.use(express.json({ limit: '50mb' }));

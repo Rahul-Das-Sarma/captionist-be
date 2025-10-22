@@ -2,9 +2,13 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { ExportService } from '../../services/exportService';
+import { exportRateLimiter } from '../middleware/rateLimiter';
 
 const router = express.Router();
 const exportService = new ExportService();
+
+// Apply lenient rate limiting to all export routes
+router.use(exportRateLimiter);
 
 router.post('/burn-in', async (req, res): Promise<void> => {
   try {
