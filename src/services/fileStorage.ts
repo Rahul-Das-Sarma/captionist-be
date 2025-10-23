@@ -50,14 +50,27 @@ export class FileStorage {
   getVideoPath(videoId: string): string {
     // This is a simplified implementation
     // In production, you'd want to store the actual filename in a database
-    const files = fs.readdirSync(this.uploadDir);
-    const file = files.find(f => f.startsWith(videoId));
 
-    if (!file) {
-      throw new Error('Video file not found');
+    // Ensure upload directory exists
+    if (!fs.existsSync(this.uploadDir)) {
+      throw new Error(`Upload directory does not exist: ${this.uploadDir}`);
     }
 
-    return path.join(this.uploadDir, file);
+    try {
+      const files = fs.readdirSync(this.uploadDir);
+      const file = files.find(f => f.startsWith(videoId));
+
+      if (!file) {
+        throw new Error(`Video file not found for ID: ${videoId}`);
+      }
+
+      return path.join(this.uploadDir, file);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        throw new Error(`Upload directory not found: ${this.uploadDir}`);
+      }
+      throw new Error(`Failed to access video file: ${error.message}`);
+    }
   }
 
   async deleteVideo(videoId: string): Promise<void> {
